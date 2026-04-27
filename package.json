@@ -1,7 +1,7 @@
 {
   "name": "deepseek-copilot-provider-custom",
   "displayName": "DeepSeek Provider for GitHub Copilot Chat (Custom)",
-  "description": "Use DeepSeek models inside GitHub Copilot Chat through VS Code's official Language Model Chat Provider API.",
+  "description": "Use DeepSeek, Anthropic, OpenAI Codex, and custom OpenAI-compatible models inside GitHub Copilot Chat through VS Code's Language Model Chat Provider API.",
   "version": "0.1.0",
   "publisher": "deepseek-copilot-provider-custom",
   "license": "MIT",
@@ -19,10 +19,15 @@
   ],
   "keywords": [
     "deepseek",
+    "anthropic",
+    "claude",
+    "codex",
+    "openai",
     "copilot",
     "language-models",
     "chat",
-    "provider"
+    "provider",
+    "multi-provider"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -41,25 +46,82 @@
       {
         "command": "deepseek.refreshModels",
         "title": "Refresh DeepSeek Models"
+      },
+      {
+        "command": "anthropic.manage",
+        "title": "Manage Anthropic Provider"
+      },
+      {
+        "command": "anthropic.openSettings",
+        "title": "Open Anthropic Provider Settings"
+      },
+      {
+        "command": "anthropic.refreshModels",
+        "title": "Refresh Anthropic Models"
+      },
+      {
+        "command": "codex.manage",
+        "title": "Manage OpenAI Codex Provider"
+      },
+      {
+        "command": "codex.openSettings",
+        "title": "Open OpenAI Codex Provider Settings"
+      },
+      {
+        "command": "codex.refreshModels",
+        "title": "Refresh OpenAI Codex Models"
+      },
+      {
+        "command": "multiProvider.manageAll",
+        "title": "Manage All Providers"
       }
     ],
     "languageModelChatProviders": [
       {
-        "vendor": "deepseek-copilot-provider-custom",
+        "vendor": "multi-provider-deepseek",
         "displayName": "DeepSeek",
         "managementCommand": "deepseek.manage"
+      },
+      {
+        "vendor": "multi-provider-anthropic",
+        "displayName": "Anthropic",
+        "managementCommand": "anthropic.manage"
+      },
+      {
+        "vendor": "multi-provider-codex",
+        "displayName": "OpenAI Codex",
+        "managementCommand": "codex.manage"
       }
     ],
     "configuration": {
-      "title": "DeepSeek Provider",
+      "title": "Multi-Provider",
       "properties": {
-        "languageModelChatProvider.deepseek-copilot-provider-custom.baseUrl": {
-          "type": "string",
-          "default": "https://api.deepseek.com",
-          "markdownDescription": "DeepSeek OpenAI-compatible API base URL.",
+        "multiProvider.customProviders": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string",
+                "description": "Display name for this custom provider"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["openai", "anthropic", "codex"],
+                "description": "API type: openai (OpenAI-compatible), anthropic, or codex"
+              },
+              "baseUrl": {
+                "type": "string",
+                "description": "Base URL for the API"
+              }
+            },
+            "required": ["label", "type", "baseUrl"]
+          },
+          "markdownDescription": "Custom API providers you've added. Each one needs its own API key configured via the **Manage All Providers** command.",
           "scope": "application"
         },
-        "languageModelChatProvider.deepseek-copilot-provider-custom.modelIds": {
+        "multiProvider.deepseek.defaultFallbackModels": {
           "type": "array",
           "default": [
             "deepseek-v4-flash",
@@ -67,21 +129,49 @@
             "deepseek-chat",
             "deepseek-reasoner"
           ],
-          "items": {
-            "type": "string"
-          },
-          "markdownDescription": "Fallback model IDs to expose when the provider cannot fetch the live `/models` list. Custom IDs are merged into the discovered list.",
+          "items": { "type": "string" },
+          "markdownDescription": "Fallback model IDs for DeepSeek, used when /models endpoint is unreachable.",
           "scope": "application"
         },
-        "languageModelChatProvider.deepseek-copilot-provider-custom.reasoningEffort": {
+        "multiProvider.deepseek.baseUrl": {
           "type": "string",
-          "enum": [
-            "low",
-            "medium",
-            "high"
+          "default": "https://api.deepseek.com",
+          "markdownDescription": "Base URL for the DeepSeek API.",
+          "scope": "application"
+        },
+        "multiProvider.anthropic.baseUrl": {
+          "type": "string",
+          "default": "https://api.anthropic.com",
+          "markdownDescription": "Base URL for the Anthropic API.",
+          "scope": "application"
+        },
+        "multiProvider.codex.baseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com",
+          "markdownDescription": "Base URL for the OpenAI Codex API.",
+          "scope": "application"
+        },
+        "multiProvider.anthropic.defaultFallbackModels": {
+          "type": "array",
+          "default": [
+            "claude-sonnet-4-20250514",
+            "claude-opus-4-20250514",
+            "claude-haiku-3-5-20250514"
           ],
-          "default": "high",
-          "markdownDescription": "Reasoning effort to use for thinking-enabled DeepSeek V4 model variants.",
+          "items": { "type": "string" },
+          "markdownDescription": "Fallback model IDs for Anthropic. (Anthropic doesn't have a public /models endpoint, so these are always used.)",
+          "scope": "application"
+        },
+        "multiProvider.codex.defaultFallbackModels": {
+          "type": "array",
+          "default": [
+            "gpt-5",
+            "gpt-5-mini",
+            "gpt-5-nano",
+            "o4-mini"
+          ],
+          "items": { "type": "string" },
+          "markdownDescription": "Fallback model IDs for OpenAI Codex, used when /v1/models endpoint is unreachable.",
           "scope": "application"
         }
       }

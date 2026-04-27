@@ -1,12 +1,20 @@
 import * as vscode from "vscode";
-import { getSettings, getApiKey } from "./config";
-import { DeepSeekClient } from "./deepseekClient";
+import { ApiClient } from "./apiClient";
+import {
+  ProviderConfig,
+  ProviderType,
+  getApiKey,
+  normalizeBaseUrl,
+} from "./config";
 
 const DEFAULT_MAX_INPUT_TOKENS = 200000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 
+// ── Per-provider metadata for well-known models ──────────────
+
 interface KnownModel {
   name: string;
+  family: string;
   maxInputTokens: number;
   maxOutputTokens: number;
   supportsThinking: boolean;
@@ -14,20 +22,24 @@ interface KnownModel {
 }
 
 const KNOWN_MODELS: Record<string, KnownModel> = {
+  // DeepSeek
   "deepseek-v4-flash": {
     name: "DeepSeek V4 Flash",
+    family: "deepseek",
     maxInputTokens: 1_000_000,
     maxOutputTokens: 384_000,
     supportsThinking: true,
   },
   "deepseek-v4-pro": {
     name: "DeepSeek V4 Pro",
+    family: "deepseek",
     maxInputTokens: 1_000_000,
     maxOutputTokens: 384_000,
     supportsThinking: true,
   },
   "deepseek-chat": {
     name: "DeepSeek Chat",
+    family: "deepseek",
     maxInputTokens: 1_000_000,
     maxOutputTokens: 384_000,
     supportsThinking: false,
@@ -35,12 +47,66 @@ const KNOWN_MODELS: Record<string, KnownModel> = {
   },
   "deepseek-reasoner": {
     name: "DeepSeek Reasoner",
+    family: "deepseek",
     maxInputTokens: 1_000_000,
     maxOutputTokens: 384_000,
     supportsThinking: true,
     legacy: true,
   },
+  // Anthropic
+  "claude-sonnet-4-20250514": {
+    name: "Claude Sonnet 4",
+    family: "claude",
+    maxInputTokens: 200_000,
+    maxOutputTokens: 4096,
+    supportsThinking: true,
+  },
+  "claude-opus-4-20250514": {
+    name: "Claude Opus 4",
+    family: "claude",
+    maxInputTokens: 200_000,
+    maxOutputTokens: 4096,
+    supportsThinking: true,
+  },
+  "claude-haiku-3-5-20250514": {
+    name: "Claude Haiku 3.5",
+    family: "claude",
+    maxInputTokens: 200_000,
+    maxOutputTokens: 4096,
+    supportsThinking: false,
+  },
+  // OpenAI Codex
+  "gpt-5": {
+    name: "GPT-5",
+    family: "openai",
+    maxInputTokens: 256_000,
+    maxOutputTokens: 16384,
+    supportsThinking: false,
+  },
+  "gpt-5-mini": {
+    name: "GPT-5 Mini",
+    family: "openai",
+    maxInputTokens: 256_000,
+    maxOutputTokens: 16384,
+    supportsThinking: false,
+  },
+  "gpt-5-nano": {
+    name: "GPT-5 Nano",
+    family: "openai",
+    maxInputTokens: 256_000,
+    maxOutputTokens: 16384,
+    supportsThinking: false,
+  },
+  "o4-mini": {
+    name: "O4 Mini",
+    family: "openai",
+    maxInputTokens: 200_000,
+    maxOutputTokens: 16384,
+    supportsThinking: false,
+  },
 };
+
+// ── Provider model shape ─────────────────────────────────────
 
 interface ProviderModel {
   providerId: string;
@@ -56,21 +122,24 @@ interface ProviderModel {
   thinkingToggleSupported: boolean;
 }
 
-export class DeepSeekChatModelProvider
+// ── The provider class (one per provider config) ─────────────
+
+export class MultiChatModelProvider
   implements vscode.LanguageModelChatProvider<vscode.LanguageModelChatInformation>
 {
   private onDidChangeEmitter = new vscode.EventEmitter<void>();
   onDidChangeLanguageModelChatInformation = this.onDidChangeEmitter.event;
 
-  private client: DeepSeekClient;
+  private client: ApiClient;
   private modelsById = new Map<string, ProviderModel>();
   private reasoningByAssistantSignature = new Map<string, string>();
 
   constructor(
+    private providerConfig: ProviderConfig,
     private secrets: vscode.SecretStorage,
     private output: vscode.OutputChannel
   ) {
-    this.client = new DeepSeekClient(output);
+    this.client = new ApiClient(output);
   }
 
   dispose(): void {
@@ -78,8 +147,9 @@ export class DeepSeekChatModelProvider
   }
 
   notifyModelInformationChanged(reason?: string): void {
+    const label = this.providerConfig.label;
     const suffix = reason ? `: ${reason}` : "";
-    this.output.appendLine(`[DeepSeek] Refreshing model list${suffix}`);
+    this.output.appendLine(`[${label}] Refreshing model list${suffix}`);
     this.onDidChangeEmitter.fire();
   }
 
@@ -87,57 +157,56 @@ export class DeepSeekChatModelProvider
     options: vscode.PrepareLanguageModelChatModelOptions,
     token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelChatInformation[]> {
-    const apiKey = await getApiKey(this.secrets);
+    const apiKey = await getApiKey(this.secrets, this.providerConfig);
     if (!apiKey) {
       if (!options.silent) {
         const action = await vscode.window.showInformationMessage(
-          "DeepSeek Provider requires an API key before its models can appear in GitHub Copilot Chat.",
-          "Configure DeepSeek"
+          `${this.providerConfig.label} Provider requires an API key before its models can appear in GitHub Copilot Chat.`,
+          `Configure ${this.providerConfig.label}`
         );
-        if (action === "Configure DeepSeek") {
-          await vscode.commands.executeCommand("deepseek.manage");
+        if (action === `Configure ${this.providerConfig.label}`) {
+          await vscode.commands.executeCommand(`${this.providerConfig.commandPrefix}.manage`);
         }
       }
       return [];
     }
 
-    const settings = getSettings();
+    const { baseUrl, type, defaultFallbackModels } = this.providerConfig;
     let remoteModelIds: string[] = [];
     try {
-      remoteModelIds = await this.client.listModels(settings.baseUrl, apiKey, token);
+      remoteModelIds = await this.client.listModels(baseUrl, apiKey, type, token);
     } catch (error) {
       this.output.appendLine(
-        `[DeepSeek] Failed to fetch /models. Falling back to configured model IDs. ${
+        `[${this.providerConfig.label}] Failed to fetch models list. ${
           error instanceof Error ? error.message : String(error)
         }`
       );
       if (!options.silent) {
         vscode.window.showWarningMessage(
-          `DeepSeek model discovery failed, using fallback model IDs instead. ${
+          `${this.providerConfig.label} model discovery failed, using fallback model IDs. ${
             error instanceof Error ? error.message : String(error)
           }`
         );
       }
     }
 
-    const providerModels = buildProviderModels([...remoteModelIds, ...settings.modelIds]);
+    const mergedModelIds = [...new Set([...remoteModelIds, ...defaultFallbackModels])];
+    const providerModels = buildProviderModels(mergedModelIds, this.providerConfig);
     this.modelsById.clear();
-    for (const providerModel of providerModels) {
-      this.modelsById.set(providerModel.providerId, providerModel);
+    for (const pm of providerModels) {
+      this.modelsById.set(pm.providerId, pm);
     }
 
-    return providerModels.map((providerModel) => ({
-      id: providerModel.providerId,
-      name: providerModel.name,
-      detail: providerModel.detail,
-      tooltip: providerModel.tooltip,
-      family: providerModel.family,
+    return providerModels.map((pm) => ({
+      id: pm.providerId,
+      name: pm.name,
+      detail: pm.detail,
+      tooltip: pm.tooltip,
+      family: pm.family,
       version: "2026.04",
-      maxInputTokens: providerModel.maxInputTokens,
-      maxOutputTokens: providerModel.maxOutputTokens,
-      capabilities: {
-        toolCalling: providerModel.toolCalling,
-      },
+      maxInputTokens: pm.maxInputTokens,
+      maxOutputTokens: pm.maxOutputTokens,
+      capabilities: { toolCalling: pm.toolCalling },
     }));
   }
 
@@ -148,14 +217,13 @@ export class DeepSeekChatModelProvider
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
     token: vscode.CancellationToken
   ): Promise<void> {
-    const apiKey = await getApiKey(this.secrets);
+    const apiKey = await getApiKey(this.secrets, this.providerConfig);
     if (!apiKey) {
-      throw new Error("DeepSeek API key is not configured.");
+      throw new Error(`${this.providerConfig.label} API key is not configured.`);
     }
 
-    const settings = getSettings();
     const providerModel =
-      this.modelsById.get(model.id) ?? buildProviderModels([model.id])[0];
+      this.modelsById.get(model.id) ?? buildProviderModels([model.id], this.providerConfig)[0];
 
     const requestMessages = this.convertMessages(messages);
     const tools = convertTools(options.tools ?? []);
@@ -192,19 +260,13 @@ export class DeepSeekChatModelProvider
     if (typeof modelOptions.stop === "string") {
       request.stop = modelOptions.stop;
     } else if (Array.isArray(modelOptions.stop)) {
-      request.stop = modelOptions.stop.filter(
-        (value: unknown) => typeof value === "string"
-      );
+      request.stop = modelOptions.stop.filter((v: unknown) => typeof v === "string");
     }
 
     if (providerModel.thinkingToggleSupported) {
       request.thinking = {
         type: providerModel.thinkingEnabled ? "enabled" : "disabled",
       };
-    }
-
-    if (providerModel.thinkingEnabled) {
-      request.reasoning_effort = settings.reasoningEffort;
     }
 
     const bufferedToolCalls = new Map<
@@ -216,27 +278,24 @@ export class DeepSeekChatModelProvider
       type: string;
       function: { name: string; arguments: string };
     }> = [];
-    let responseText = "";
     let reasoningContent = "";
 
     for await (const chunk of this.client.streamChatCompletion(
-      settings.baseUrl,
+      this.providerConfig.baseUrl,
       apiKey,
+      this.providerConfig.type,
       request,
       token
     )) {
       for (const choice of (chunk.choices as Array<Record<string, unknown>>) ?? []) {
         const delta = choice.delta as Record<string, unknown> | undefined;
-        if (!delta) {
-          continue;
-        }
+        if (!delta) continue;
 
         if (typeof delta.reasoning_content === "string") {
           reasoningContent += delta.reasoning_content;
         }
 
         if (typeof delta.content === "string" && delta.content.length > 0) {
-          responseText += delta.content;
           progress.report(new vscode.LanguageModelTextPart(delta.content));
         }
 
@@ -245,30 +304,24 @@ export class DeepSeekChatModelProvider
             const buffer = bufferedToolCalls.get(toolCall.index as number) ?? {
               argumentsText: "",
             };
-            if (toolCall.id) {
-              buffer.id = toolCall.id as string;
-            }
+            if (toolCall.id) buffer.id = toolCall.id as string;
             const fn = toolCall.function as Record<string, unknown> | undefined;
-            if (fn?.name) {
-              buffer.name = fn.name as string;
-            }
-            if (fn?.arguments) {
-              buffer.argumentsText += fn.arguments as string;
-            }
+            if (fn?.name) buffer.name = fn.name as string;
+            if (fn?.arguments) buffer.argumentsText += fn.arguments as string;
             bufferedToolCalls.set(toolCall.index as number, buffer);
           }
         }
 
         if (choice.finish_reason === "tool_calls") {
-          for (const toolCall of flushBufferedToolCalls(bufferedToolCalls, progress)) {
-            emittedToolCalls.push(toolCall);
+          for (const tc of flushBufferedToolCalls(bufferedToolCalls, progress)) {
+            emittedToolCalls.push(tc);
           }
         }
       }
     }
 
-    for (const toolCall of flushBufferedToolCalls(bufferedToolCalls, progress)) {
-      emittedToolCalls.push(toolCall);
+    for (const tc of flushBufferedToolCalls(bufferedToolCalls, progress)) {
+      emittedToolCalls.push(tc);
     }
 
     if (
@@ -276,7 +329,7 @@ export class DeepSeekChatModelProvider
       emittedToolCalls.length > 0 &&
       reasoningContent.trim().length > 0
     ) {
-      const signature = createAssistantSignature(responseText, emittedToolCalls);
+      const signature = createAssistantSignature("", emittedToolCalls);
       this.rememberReasoning(signature, reasoningContent);
     }
   }
@@ -392,29 +445,35 @@ export class DeepSeekChatModelProvider
   }
 }
 
-function buildProviderModels(modelIds: string[]): ProviderModel[] {
+function buildProviderModels(
+  modelIds: string[],
+  providerConfig: ProviderConfig
+): ProviderModel[] {
   const uniqueModelIds = modelIds
-    .map((modelId) => modelId.trim())
-    .filter(
-      (modelId, index, list) =>
-        modelId.length > 0 && list.indexOf(modelId) === index
-    );
+    .map((id) => id.trim())
+    .filter((id, i, arr) => id.length > 0 && arr.indexOf(id) === i);
 
   const providerModels: ProviderModel[] = [];
+  const type = providerConfig.type;
 
   for (const modelId of uniqueModelIds) {
     const metadata = KNOWN_MODELS[modelId];
 
-    if (modelId === "deepseek-v4-flash" || modelId === "deepseek-v4-pro") {
+    if (type === "openai" && metadata?.supportsThinking) {
+      const label = metadata.name ?? humanizeModelName(modelId);
+      const family = metadata?.family ?? providerConfig.label.toLowerCase();
+      const maxIn = metadata?.maxInputTokens ?? DEFAULT_MAX_INPUT_TOKENS;
+      const maxOut = metadata?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+
       providerModels.push({
         providerId: modelId,
         apiModel: modelId,
-        name: metadata.name,
-        detail: "DeepSeek • Standard",
-        tooltip: `${metadata.name} with thinking explicitly disabled. Use this when you want tool use to behave predictably in Copilot Chat.`,
-        family: "deepseek",
-        maxInputTokens: metadata.maxInputTokens,
-        maxOutputTokens: metadata.maxOutputTokens,
+        name: label,
+        detail: `${providerConfig.label} • Standard`,
+        tooltip: `${label} with thinking explicitly disabled.`,
+        family,
+        maxInputTokens: maxIn,
+        maxOutputTokens: maxOut,
         toolCalling: true,
         thinkingEnabled: false,
         thinkingToggleSupported: true,
@@ -422,12 +481,12 @@ function buildProviderModels(modelIds: string[]): ProviderModel[] {
       providerModels.push({
         providerId: `${modelId}-thinking`,
         apiModel: modelId,
-        name: `${metadata.name} (Thinking)`,
-        detail: "DeepSeek • Reasoning",
-        tooltip: `${metadata.name} with thinking enabled.`,
-        family: "deepseek",
-        maxInputTokens: metadata.maxInputTokens,
-        maxOutputTokens: metadata.maxOutputTokens,
+        name: `${label} (Thinking)`,
+        detail: `${providerConfig.label} • Reasoning`,
+        tooltip: `${label} with thinking enabled.`,
+        family,
+        maxInputTokens: maxIn,
+        maxOutputTokens: maxOut,
         toolCalling: true,
         thinkingEnabled: true,
         thinkingToggleSupported: true,
@@ -435,81 +494,38 @@ function buildProviderModels(modelIds: string[]): ProviderModel[] {
       continue;
     }
 
-    if (modelId === "deepseek-chat") {
-      providerModels.push({
-        providerId: modelId,
-        apiModel: "deepseek-v4-flash",
-        name: "DeepSeek Chat (Legacy Alias)",
-        detail: "DeepSeek • Legacy standard alias",
-        tooltip:
-          "Compatibility alias that maps to DeepSeek V4 Flash with thinking disabled. DeepSeek plans to deprecate this alias on 2026-07-24.",
-        family: "deepseek",
-        maxInputTokens: metadata.maxInputTokens,
-        maxOutputTokens: metadata.maxOutputTokens,
-        toolCalling: true,
-        thinkingEnabled: false,
-        thinkingToggleSupported: true,
-      });
-      continue;
-    }
-
-    if (modelId === "deepseek-reasoner") {
-      providerModels.push({
-        providerId: modelId,
-        apiModel: "deepseek-v4-flash",
-        name: "DeepSeek Reasoner (Legacy Alias)",
-        detail: "DeepSeek • Legacy reasoning alias",
-        tooltip:
-          "Compatibility alias that maps to DeepSeek V4 Flash with thinking enabled. DeepSeek plans to deprecate this alias on 2026-07-24.",
-        family: "deepseek",
-        maxInputTokens: metadata.maxInputTokens,
-        maxOutputTokens: metadata.maxOutputTokens,
-        toolCalling: true,
-        thinkingEnabled: true,
-        thinkingToggleSupported: true,
-      });
-      continue;
-    }
+    const label = metadata?.name ?? humanizeModelName(modelId);
+    const family = metadata?.family ?? providerConfig.label.toLowerCase();
+    const maxIn = metadata?.maxInputTokens ?? DEFAULT_MAX_INPUT_TOKENS;
+    const maxOut = metadata?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
 
     providerModels.push({
       providerId: modelId,
       apiModel: modelId,
-      name: metadata?.name ?? humanizeModelName(modelId),
-      detail: metadata?.legacy ? "DeepSeek • Legacy" : "DeepSeek • Custom",
-      tooltip: metadata?.legacy
-        ? `${metadata.name} legacy model`
-        : `Custom DeepSeek model ID: ${modelId}`,
-      family: "deepseek",
-      maxInputTokens: metadata?.maxInputTokens ?? DEFAULT_MAX_INPUT_TOKENS,
-      maxOutputTokens: metadata?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+      name: label,
+      detail: metadata?.legacy
+        ? `${providerConfig.label} • Legacy`
+        : `${providerConfig.label} • Chat`,
+      tooltip: metadata?.legacy ? `${label} legacy model` : label,
+      family,
+      maxInputTokens: maxIn,
+      maxOutputTokens: maxOut,
       toolCalling: true,
-      thinkingEnabled: false,
-      thinkingToggleSupported: false,
+      thinkingEnabled: type === "anthropic" && !!metadata?.supportsThinking,
+      thinkingToggleSupported: type === "openai" && !!metadata?.supportsThinking,
     });
   }
 
-  providerModels.sort((left, right) =>
-    compareModels(left.providerId, right.providerId)
-  );
+  providerModels.sort((a, b) => {
+    const aKnown = KNOWN_MODELS[a.apiModel] ? 0 : 1;
+    const bKnown = KNOWN_MODELS[b.apiModel] ? 0 : 1;
+    if (aKnown !== bKnown) return aKnown - bKnown;
+    return a.providerId.localeCompare(b.providerId);
+  });
   return providerModels;
 }
 
-function compareModels(left: string, right: string): number {
-  const order: Record<string, number> = {
-    "deepseek-v4-flash": 0,
-    "deepseek-v4-flash-thinking": 1,
-    "deepseek-v4-pro": 2,
-    "deepseek-v4-pro-thinking": 3,
-    "deepseek-chat": 4,
-    "deepseek-reasoner": 5,
-  };
-  const leftOrder = order[left] ?? 100;
-  const rightOrder = order[right] ?? 100;
-  if (leftOrder !== rightOrder) {
-    return leftOrder - rightOrder;
-  }
-  return left.localeCompare(right);
-}
+export { MultiChatModelProvider as DeepSeekChatModelProvider };
 
 function humanizeModelName(modelId: string): string {
   return modelId
