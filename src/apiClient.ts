@@ -85,7 +85,8 @@ export class ApiClient {
         method: "POST",
         headers: {
           Accept: "application/json",
-          Authorization: `Bearer ${apiKey}`,
+          "x-api-key": apiKey,
+          "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(request),
@@ -264,7 +265,7 @@ export class ApiClient {
         headers: {
           Accept: "application/json",
           "x-api-key": apiKey,
-          Authorization: `Bearer ${apiKey}`,
+          "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(request),
