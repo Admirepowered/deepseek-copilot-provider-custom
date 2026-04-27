@@ -76,16 +76,29 @@ export class ApiClient {
     token: vscode.CancellationToken
   ): AsyncGenerator<Record<string, unknown>> {
     const abortController = createAbortController(token);
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
-      signal: abortController.signal,
-    });
+    const timeoutId = setTimeout(() => abortController.abort(), 120_000);
+
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(request),
+        signal: abortController.signal,
+      });
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `OpenAI connection failed (${baseUrl}/chat/completions): ${msg}. ` +
+        `Check your network, base URL, and proxy settings.`
+      );
+    }
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       throw new Error(await buildErrorMessage(response, "OpenAI chat request failed"));
@@ -118,17 +131,35 @@ export class ApiClient {
     const abortController = createAbortController(token);
     const anthropicVersion = "2023-06-01";
 
-    const response = await fetch(`${baseUrl}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": anthropicVersion,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(body),
-      signal: abortController.signal,
-    });
+    const headers: Record<string, string> = {
+      "x-api-key": apiKey,
+      "anthropic-version": anthropicVersion,
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    };
+    if (body.thinking && (body.thinking as Record<string, unknown>).type === "enabled") {
+      headers["anthropic-beta"] = "thinking-2025-04-15";
+    }
+
+    const timeoutId = setTimeout(() => abortController.abort(), 120_000);
+
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/v1/messages`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: abortController.signal,
+      });
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Anthropic connection failed (${baseUrl}/v1/messages): ${msg}. ` +
+        `Check your network, base URL, and proxy settings.`
+      );
+    }
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       throw new Error(await buildErrorMessage(response, "Anthropic chat request failed"));
@@ -223,16 +254,29 @@ export class ApiClient {
     token: vscode.CancellationToken
   ): AsyncGenerator<Record<string, unknown>> {
     const abortController = createAbortController(token);
-    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "x-api-key": apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
-      signal: abortController.signal,
-    });
+    const timeoutId = setTimeout(() => abortController.abort(), 120_000);
+
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "x-api-key": apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(request),
+        signal: abortController.signal,
+      });
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Codex connection failed (${baseUrl}/v1/chat/completions): ${msg}. ` +
+        `Check your network, base URL, and proxy settings.`
+      );
+    }
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       throw new Error(await buildErrorMessage(response, "Codex chat request failed"));
@@ -270,6 +314,7 @@ function convertToAnthropicRequest(
     model,
     max_tokens: maxTokens,
     messages: convertMessagesToAnthropic(messages),
+    stream: true,
   };
 
   if (temperature !== undefined) body.temperature = temperature;
@@ -309,26 +354,36 @@ function convertMessagesToAnthropic(
     if (role === "user") {
       result.push({ role: "user", content: content ?? "" });
     } else if (role === "assistant") {
-      const assistantMsg: Record<string, unknown> = { role: "assistant", content: content ?? "" };
       const toolCalls = msg.tool_calls as Array<Record<string, unknown>> | undefined;
-      if (toolCalls && toolCalls.length > 0) {
-        assistantMsg.content = (content as string) || "";
-        assistantMsg.tool_use = toolCalls.map((tc) => {
-          const fn = tc.function as Record<string, unknown>;
-          return {
-            type: "tool_use",
-            id: tc.id,
-            name: fn?.name,
-            input: safeParseJson(fn?.arguments as string),
-          };
-        });
-      }
       const reasoningContent = msg.reasoning_content as string | undefined;
-      if (reasoningContent) {
-        // Store reasoning in content blocks for Anthropic format
-        assistantMsg.reasoning = reasoningContent;
+      const hasToolCalls = toolCalls && toolCalls.length > 0;
+      const hasReasoning = !!reasoningContent;
+      const textContent = content || "";
+
+      if (hasToolCalls || hasReasoning) {
+        // Anthropic requires content to be an array of content blocks
+        const contentBlocks: Array<Record<string, unknown>> = [];
+        if (reasoningContent) {
+          contentBlocks.push({ type: "thinking", thinking: reasoningContent });
+        }
+        if (textContent) {
+          contentBlocks.push({ type: "text", text: textContent });
+        }
+        if (toolCalls) {
+          for (const tc of toolCalls) {
+            const fn = tc.function as Record<string, unknown>;
+            contentBlocks.push({
+              type: "tool_use",
+              id: tc.id,
+              name: fn?.name,
+              input: safeParseJson(fn?.arguments as string),
+            });
+          }
+        }
+        result.push({ role: "assistant", content: contentBlocks });
+      } else {
+        result.push({ role: "assistant", content: textContent });
       }
-      result.push(assistantMsg);
     } else if (role === "tool") {
       result.push({
         role: "user",
