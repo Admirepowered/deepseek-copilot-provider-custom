@@ -364,7 +364,7 @@ export class DeepSeekChatModelProvider
           assistantMessage.reasoning_content = storedReasoning;
         }
         converted.push(assistantMessage);
-      } else if (combinedText.length > 0 || role !== "assistant") {
+      } else if (combinedText.length > 0) {
         converted.push({
           role,
           content: combinedText.length > 0 ? combinedText : "",

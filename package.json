@@ -45,7 +45,7 @@
     ],
     "languageModelChatProviders": [
       {
-        "vendor": "deepseek",
+        "vendor": "deepseek-copilot-provider-custom",
         "displayName": "DeepSeek",
         "managementCommand": "deepseek.manage"
       }
@@ -53,13 +53,13 @@
     "configuration": {
       "title": "DeepSeek Provider",
       "properties": {
-        "languageModelChatProvider.deepseek.baseUrl": {
+        "languageModelChatProvider.deepseek-copilot-provider-custom.baseUrl": {
           "type": "string",
           "default": "https://api.deepseek.com",
           "markdownDescription": "DeepSeek OpenAI-compatible API base URL.",
           "scope": "application"
         },
-        "languageModelChatProvider.deepseek.modelIds": {
+        "languageModelChatProvider.deepseek-copilot-provider-custom.modelIds": {
           "type": "array",
           "default": [
             "deepseek-v4-flash",
@@ -73,7 +73,7 @@
           "markdownDescription": "Fallback model IDs to expose when the provider cannot fetch the live `/models` list. Custom IDs are merged into the discovered list.",
           "scope": "application"
         },
-        "languageModelChatProvider.deepseek.reasoningEffort": {
+        "languageModelChatProvider.deepseek-copilot-provider-custom.reasoningEffort": {
           "type": "string",
           "enum": [
             "low",

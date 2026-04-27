@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
-export const CONFIG_SECTION = "languageModelChatProvider.deepseek";
-export const DEEPSEEK_API_KEY_SECRET = "deepseek.apiKey";
+export const CONFIG_SECTION = "languageModelChatProvider.deepseek-copilot-provider-custom";
+export const DEEPSEEK_API_KEY_SECRET = "deepseek-copilot-provider-custom.apiKey";
 
 export interface DeepSeekSettings {
   baseUrl: string;

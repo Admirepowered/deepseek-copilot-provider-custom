@@ -10,7 +10,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(output);
   context.subscriptions.push(provider);
   context.subscriptions.push(
-    vscode.lm.registerLanguageModelChatProvider("deepseek", provider)
+    vscode.lm.registerLanguageModelChatProvider("deepseek-copilot-provider-custom", provider)
   );
 
   context.subscriptions.push(
