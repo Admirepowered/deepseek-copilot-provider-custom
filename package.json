@@ -1,0 +1,102 @@
+{
+  "name": "deepseek-copilot-provider-custom",
+  "displayName": "DeepSeek Provider for GitHub Copilot Chat (Custom)",
+  "description": "Use DeepSeek models inside GitHub Copilot Chat through VS Code's official Language Model Chat Provider API.",
+  "version": "0.1.0",
+  "publisher": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Other"
+  ],
+  "keywords": [
+    "deepseek",
+    "copilot",
+    "language-models",
+    "chat",
+    "provider"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "deepseek.manage",
+        "title": "Manage DeepSeek Provider"
+      },
+      {
+        "command": "deepseek.openSettings",
+        "title": "Open DeepSeek Provider Settings"
+      },
+      {
+        "command": "deepseek.refreshModels",
+        "title": "Refresh DeepSeek Models"
+      }
+    ],
+    "languageModelChatProviders": [
+      {
+        "vendor": "deepseek",
+        "displayName": "DeepSeek",
+        "managementCommand": "deepseek.manage"
+      }
+    ],
+    "configuration": {
+      "title": "DeepSeek Provider",
+      "properties": {
+        "languageModelChatProvider.deepseek.baseUrl": {
+          "type": "string",
+          "default": "https://api.deepseek.com",
+          "markdownDescription": "DeepSeek OpenAI-compatible API base URL.",
+          "scope": "application"
+        },
+        "languageModelChatProvider.deepseek.modelIds": {
+          "type": "array",
+          "default": [
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+            "deepseek-chat",
+            "deepseek-reasoner"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "markdownDescription": "Fallback model IDs to expose when the provider cannot fetch the live `/models` list. Custom IDs are merged into the discovered list.",
+          "scope": "application"
+        },
+        "languageModelChatProvider.deepseek.reasoningEffort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "high",
+          "markdownDescription": "Reasoning effort to use for thinking-enabled DeepSeek V4 model variants.",
+          "scope": "application"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -w -p ./",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package --out deepseek-copilot-provider-custom-0.1.0.vsix"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.6.2",
+    "@types/node": "^20.17.46",
+    "@types/vscode": "^1.104.0",
+    "typescript": "^5.8.3"
+  }
+}
