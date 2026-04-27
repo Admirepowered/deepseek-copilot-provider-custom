@@ -29,6 +29,7 @@ export class ApiClient {
 
     if (type === "codex") {
       headers["x-api-key"] = apiKey;
+      headers["Authorization"] = `Bearer ${apiKey}`;
     } else {
       headers["Authorization"] = `Bearer ${apiKey}`;
     }
@@ -263,6 +264,7 @@ export class ApiClient {
         headers: {
           Accept: "application/json",
           "x-api-key": apiKey,
+          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(request),
