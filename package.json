@@ -3,7 +3,7 @@
   "displayName": "DeepSeek Provider for GitHub Copilot Chat (Custom)",
   "description": "Use DeepSeek models inside GitHub Copilot Chat through VS Code's official Language Model Chat Provider API.",
   "version": "0.1.0",
-  "publisher": "",
+  "publisher": "deepseek-copilot-provider-custom",
   "license": "MIT",
   "repository": {
     "type": "git",
