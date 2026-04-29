@@ -43,7 +43,6 @@ export class ApiClient {
     }
 
     const payload = (await response.json()) as { data?: { id: string }[]; models?: { id: string }[] };
-    // OpenAI /v1/models returns { data: [...] } or { models: [...] }
     const models = payload.data ?? payload.models ?? [];
     return models
       .map((m: { id: string }) => m.id)
@@ -96,7 +95,7 @@ export class ApiClient {
       clearTimeout(timeoutId);
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(
-        `OpenAI connection failed (${baseUrl}/chat/completions): ${msg}. ` +
+        `OpenAI connection failed (${baseUrl}/v1/chat/completions): ${msg}. ` +
         `Check your network, base URL, and proxy settings.`
       );
     }

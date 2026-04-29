@@ -2,7 +2,7 @@
   "name": "deepseek-copilot-provider-custom",
   "displayName": "DeepSeek Provider for GitHub Copilot Chat (Custom)",
   "description": "Use DeepSeek, Anthropic, OpenAI Codex, and custom OpenAI-compatible models inside GitHub Copilot Chat through VS Code's Language Model Chat Provider API.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "deepseek-copilot-provider-custom",
   "license": "MIT",
   "repository": {
@@ -181,7 +181,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -w -p ./",
     "vscode:prepublish": "npm run compile",
-    "package": "vsce package --out deepseek-copilot-provider-custom-0.1.1.vsix"
+    "package": "vsce package"
   },
   "devDependencies": {
     "@vscode/vsce": "^3.6.2",
